@@ -454,7 +454,10 @@ func (conn *Conn) write(b []byte, rel reliability, control bool) (n int, err err
 		conn.splitID++
 	}
 	for splitIndex, content := range fragments {
-		pk := packetPool.Get().(*packet)
+		pk, ok := packetPool.Get().(*packet)
+		if !ok {
+			pk = &packet{reliability: reliabilityReliableOrdered}
+		}
 		if cap(pk.content) < len(content) {
 			pk.content = make([]byte, len(content))
 		}

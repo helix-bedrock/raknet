@@ -30,7 +30,7 @@ func NewLocalSystemAddresses(local netip.AddrPort) systemAddresses {
 		first = netip.IPv6Loopback()
 		zero = netip.IPv6Unspecified()
 	} else {
-		first = netip.MustParseAddr("127.0.0.1")
+		first = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 		zero = netip.IPv4Unspecified()
 	}
 
@@ -87,7 +87,13 @@ func putAddr(b []byte, addrPort netip.AddrPort) int {
 	}
 }
 
+// addr decodes an address from b and returns it with the number of bytes
+// used. If b is too short it returns the zero address and len(b) instead of
+// panicking, so a short message from a peer can never crash the server.
 func addr(b []byte) (netip.AddrPort, int) {
+	if len(b) < addrSize(b) {
+		return netip.AddrPort{}, len(b)
+	}
 	if b[0] == 4 || b[0] == 0 {
 		ip := netip.AddrFrom4([4]byte{(-b[1] - 1) & 0xff, (-b[2] - 1) & 0xff, (-b[3] - 1) & 0xff, (-b[4] - 1) & 0xff})
 		port := binary.BigEndian.Uint16(b[5:])
