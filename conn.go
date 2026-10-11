@@ -116,6 +116,11 @@ type Conn struct {
 	raddr   net.Addr
 	handler connectionHandler
 
+	// hooks are this connection's own hooks, and listener is the listener
+	// that accepted it (nil for dialed connections); see hooks.go.
+	hooks    connHooks
+	listener *Listener
+
 	once      sync.Once
 	connected chan struct{}
 
@@ -385,6 +390,19 @@ func (conn *Conn) Write(b []byte) (n int, err error) {
 // multiple goroutines, but will write one by one. Unlike Write, it allows
 // specifying the reliability.
 func (conn *Conn) writeWithReliability(b []byte, rel reliability) (n int, err error) {
+	out, keep := conn.runPacket(false, b)
+	if !keep || len(out) == 0 {
+		// Dropped by a hook: report it as written so callers do not retry.
+		return len(b), nil
+	}
+	if _, err := conn.writeAfterHooks(out, rel); err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+// writeAfterHooks writes b once packet-out hooks have run.
+func (conn *Conn) writeAfterHooks(b []byte, rel reliability) (n int, err error) {
 	select {
 	case <-conn.ctx.Done():
 		return 0, conn.error(net.ErrClosed, "write")
@@ -555,6 +573,7 @@ func (conn *Conn) closeImmediately() {
 
 		conn.handler.close(conn)
 		conn.cancelFunc()
+		conn.runDisconnect()
 		unregisterMetricsConnection(conn)
 
 		conn.mu.Lock()
@@ -728,6 +747,9 @@ func (conn *Conn) handleDatagram(b []byte) error {
 		}
 		b = b[n:]
 
+		if !conn.runFrameIn(conn.pk) {
+			continue
+		}
 		handle := conn.receivePacket
 		if conn.pk.split {
 			handle = conn.receiveSplitPacket
@@ -779,6 +801,12 @@ func (conn *Conn) handlePacket(b []byte) error {
 	handled, err := conn.handler.handle(conn, b)
 	if err != nil {
 		return fmt.Errorf("handle packet: %w", err)
+	}
+	if !handled {
+		var keep bool
+		if b, keep = conn.runPacket(true, b); !keep || len(b) == 0 {
+			return nil
+		}
 	}
 	if !handled {
 		conn.packets.Send(b)
@@ -1133,6 +1161,10 @@ func (conn *Conn) sendDatagram(pk *packet, size uint32, retransmit bool) error {
 // is logged but not returned. This is done because at this stage, packets
 // being lost to an error can be recovered through resending.
 func (conn *Conn) writeTo(p []byte, raddr net.Addr) error {
+	var keep bool
+	if p, keep = conn.runRaw(false, raddr, p); !keep {
+		return nil
+	}
 	if _, err := conn.conn.WriteTo(p, raddr); errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("write to: %w", err)
 	} else if err != nil {
