@@ -1,5 +1,3 @@
-<!-- TEMPLATE: fill in each section for this repo, then delete this line. -->
-
 # AGENTS.md
 
 Rules for AI coding agents working in this repo. Also read the org-wide rules in
@@ -9,7 +7,9 @@ disagree, this file wins for this repo.
 
 ## What this repo is
 
-<What it does, what it does not do, and who uses it.>
+The RakNet transport for Helix: UDP connections, reliability, ordering,
+splitting, congestion control and metrics for Minecraft Bedrock. Used by the
+Helix server; the client dialer is kept but is not the focus.
 
 ## Commands
 
@@ -18,22 +18,20 @@ go build ./...
 go vet ./...
 golangci-lint run
 go test -race ./...
-go test -run=^$ -bench=. -benchmem ./...   # benchmarks
 ```
 
 ## Layout
 
-<Main packages and what each one owns.>
+- Root package: `Listener`, `Conn`, `Dialer`, reliability, congestion, metrics.
+- `internal/message`: RakNet offline and connected control messages.
 
 ## Invariants: do not break these
 
-<!-- Things that must stay true. Examples:
-1. This package never imports the engine.
-2. Decoding never allocates more than the input size.
-3. The on-disk format matches BDS byte for byte. -->
-
-1. <...>
+1. Wire format matches vanilla Bedrock RakNet byte for byte.
+2. The original copyright line in `LICENSE` stays.
+3. Hot paths (packet read and write) must not allocate in the steady state.
 
 ## Gotchas
 
-<Non-obvious traps: generated files, test data, platform quirks.>
+- Imported from a go-raknet fork; see `CREDITS.md`. Low-level hooks (connection
+  attempts, frames, raw bytes) are being added; see the Helix API design.

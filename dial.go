@@ -1,0 +1,598 @@
+package raknet
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"time"
+
+	"github.com/helix-bedrock/raknet/internal"
+
+	"github.com/helix-bedrock/raknet/internal/message"
+)
+
+// UpstreamDialer is an interface for anything compatible with net.Dialer.
+type UpstreamDialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// Ping sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, an error is returned which implies a timeout occurred. Ping
+// will time out after 5 seconds.
+func Ping(address string) (response []byte, err error) {
+	var d Dialer
+	return d.Ping(address)
+}
+
+// PingTimeout sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, an error is returned which implies a timeout occurred.
+// PingTimeout will time out after the duration passed.
+func PingTimeout(address string, timeout time.Duration) ([]byte, error) {
+	var d Dialer
+	return d.PingTimeout(address, timeout)
+}
+
+// PingContext sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, PingContext could last indefinitely, hence a timeout should
+// always be attached to the context passed. PingContext cancels as soon as the
+// deadline expires.
+func PingContext(ctx context.Context, address string) (response []byte, err error) {
+	var d Dialer
+	return d.PingContext(ctx, address)
+}
+
+// Dial attempts to dial a RakNet connection to the address passed. The address
+// may be either an IP address or a hostname, combined with a port that is
+// separated with ':'. Dial will attempt to dial a connection within 10
+// seconds. If not all packets are received after that, the connection will
+// time out and an error will be returned. Dial fills out a Dialer struct with a
+// default error logger.
+func Dial(address string) (*Conn, error) {
+	var d Dialer
+	return d.Dial(address)
+}
+
+// DialTimeout attempts to dial a RakNet connection to the address passed. The
+// address may be either an IP address or a hostname, combined with a port that
+// is separated with ':'. DialTimeout will attempt to dial a connection within
+// the timeout duration passed. If not all packets are received after that, the
+// connection will time out and an error will be returned.
+func DialTimeout(address string, timeout time.Duration) (*Conn, error) {
+	var d Dialer
+	return d.DialTimeout(address, timeout)
+}
+
+// DialContext attempts to dial a RakNet connection to the address passed. The
+// address may be either an IP address or a hostname, combined with a port that
+// is separated with ':'. DialContext will use the deadline (ctx.Deadline) of
+// the context.Context passed for the maximum amount of time that the dialing
+// can take. DialContext will terminate as soon as possible when the
+// context.Context is closed.
+func DialContext(ctx context.Context, address string) (*Conn, error) {
+	var d Dialer
+	return d.DialContext(ctx, address)
+}
+
+// Dialer allows dialing a RakNet connection with specific configuration, such
+// as the protocol version of the connection and the logger used.
+type Dialer struct {
+	// ErrorLog is a logger that errors from packet decoding are logged to. By
+	// default, ErrorLog is set to a new slog.Logger with a slog.Handler that
+	// is always disabled. Error messages are thus not logged by default.
+	ErrorLog *slog.Logger
+
+	// UpstreamDialer is a dialer that will override the default dialer for
+	// opening outgoing connections. The default is a net.Dial("udp", ...).
+	UpstreamDialer UpstreamDialer
+
+	// MaxTransientErrors is the maximum number of transient errors to ignore
+	// before returning an error. These include errors that can occur on
+	// bad connections such as EMSGSIZE, ECONNREFUSED, EHOSTUNREACH, ENETUNREACH, ECONNRESET.
+	// If there is no limit it will continue to retry reading until the context deadline.
+	// Default is 10. -1 means no limit.
+	// This is only used for the initial connection handshake.
+	MaxTransientErrors int
+
+	// MaxMTU caps the largest MTU value used during the connection
+	// handshake. If zero, probes start at the maximum supported MTU.
+	//
+	// Set this to your local interface MTU when it is below 1500 (for
+	// example 1400 on hosts behind a tunnel or VPN). With the default,
+	// the kernel will fragment the first probes into two IP packets, and
+	// some firewalls drop fragmented UDP and never deliver them to the
+	// server. Capping the MTU keeps every packet inside a single IP
+	// datagram for the entire connection.
+	MaxMTU uint16
+}
+
+// Ping sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, an error is returned which implies a timeout occurred. Ping
+// will time out after 5 seconds.
+func (dialer Dialer) Ping(address string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	return dialer.PingContext(ctx, address)
+}
+
+// PingTimeout sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, an error is returned which implies a timeout occurred.
+// PingTimeout will time out after the duration passed.
+func (dialer Dialer) PingTimeout(address string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return dialer.PingContext(ctx, address)
+}
+
+// PingContext sends a ping to an address and returns the response obtained. If
+// successful, a non-nil response byte slice containing the data is returned.
+// If the ping failed, an error is returned describing the failure. Note that
+// the packet sent to the server may be lost due to the nature of UDP. If this
+// is the case, PingContext could last indefinitely, hence a timeout should
+// always be attached to the context passed. PingContext cancels as soon as the
+// deadline expires.
+func (dialer Dialer) PingContext(ctx context.Context, address string) (response []byte, err error) {
+	conn, err := dialer.dial(ctx, address)
+	if err != nil {
+		return nil, dialer.error("ping", err)
+	}
+	defer conn.Close()
+
+	id, err := newClientGUID(rand.Reader)
+	if err != nil {
+		return nil, dialer.error("ping", err)
+	}
+	data, _ := (&message.UnconnectedPing{PingTime: timestamp(), ClientGUID: id}).MarshalBinary()
+	if _, err := conn.Write(data); err != nil {
+		return nil, dialer.error("ping", err)
+	}
+
+	data = make([]byte, maxMTUSize)
+	n, err := conn.Read(data)
+	if err != nil {
+		return nil, dialer.error("ping", err)
+	}
+	if n == 0 || data[0] != message.IDUnconnectedPong {
+		return nil, dialer.error("ping", fmt.Errorf("non-pong packet found (id = %v)", data[0]))
+	}
+	pong := &message.UnconnectedPong{}
+	if err := pong.UnmarshalBinary(data[1:n]); err != nil {
+		return nil, dialer.error("ping", fmt.Errorf("read unconnected pong: %w", err))
+	}
+	return pong.Data, nil
+}
+
+// error wraps the error passed resulting from an operation in a *net.OpError.
+func (dialer Dialer) error(op string, err error) *net.OpError {
+	return &net.OpError{Op: op, Net: "raknet", Source: nil, Addr: nil, Err: err}
+}
+
+// dial dials a connection to an address and assigns the deadline of the context
+// to the connection.
+func (dialer Dialer) dial(ctx context.Context, address string) (net.Conn, error) {
+	dial := (&net.Dialer{}).DialContext
+	if dialer.UpstreamDialer != nil {
+		dial = dialer.UpstreamDialer.DialContext
+	}
+	conn, err := dial(ctx, "udp", address)
+	if err != nil {
+		return nil, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	return conn, nil
+}
+
+// Dial attempts to dial a RakNet connection to the address passed. The address
+// may be either an IP address or a hostname, combined with a port that is
+// separated with ':'. Dial will attempt to dial a connection within 10
+// seconds. If not all packets are received after that, the connection will
+// timeout and an error will be returned.
+func (dialer Dialer) Dial(address string) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	return dialer.DialContext(ctx, address)
+}
+
+// DialTimeout attempts to dial a RakNet connection to the address passed. The
+// address may be either an IP address or a hostname, combined with a port that
+// is separated with ':'. DialTimeout will attempt to dial a connection within
+// the timeout duration passed. If not all packets are received after that, the
+// connection will time out and an error will be returned.
+func (dialer Dialer) DialTimeout(address string, timeout time.Duration) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return dialer.DialContext(ctx, address)
+}
+
+// DialContext attempts to dial a RakNet connection to the address passed. The
+// address may be either an IP address or a hostname, combined with a port that
+// is separated with ':'. DialContext will use the deadline (ctx.Deadline) of
+// the context.Context passed for the maximum amount of time that the dialing
+// can take. DialContext will terminate as soon as possible when the
+// context.Context is closed.
+func (dialer Dialer) DialContext(ctx context.Context, address string) (*Conn, error) {
+	if dialer.ErrorLog == nil {
+		dialer.ErrorLog = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	}
+	if dialer.MaxTransientErrors == 0 {
+		dialer.MaxTransientErrors = 10
+	}
+
+	conn, err := dialer.dial(ctx, address)
+	if err != nil {
+		return nil, dialer.error("dial", err)
+	}
+	id, err := newClientGUID(rand.Reader)
+	if err != nil {
+		_ = conn.Close()
+		return nil, dialer.error("dial", err)
+	}
+	dialer.ErrorLog = dialer.ErrorLog.With("src", "dialer", "raddr", conn.RemoteAddr().String())
+
+	cs := &connState{
+		conn:               conn,
+		raddr:              conn.RemoteAddr(),
+		id:                 id,
+		ticker:             time.NewTicker(time.Second / 2),
+		maxTransientErrors: dialer.MaxTransientErrors,
+		maxMTU:             dialer.MaxMTU,
+	}
+	defer cs.ticker.Stop()
+	if err = cs.negotiate(ctx); err != nil {
+		return nil, dialer.error("dial", err)
+	}
+	return dialer.connect(ctx, cs)
+}
+
+// dial finishes the RakNet connection sequence and returns a Conn if
+// successful.
+func (dialer Dialer) connect(ctx context.Context, state *connState) (*Conn, error) {
+	conn := newConn(internal.ConnToPacketConn(state.conn), state.raddr, state.mtu, dialerConnectionHandler{l: dialer.ErrorLog})
+	if err := conn.send((&message.ConnectionRequest{ClientGUID: state.id, RequestTime: timestamp()})); err != nil {
+		return nil, dialer.error("dial", fmt.Errorf("send connection request: %w", err))
+	}
+	// dialer.ErrorLog.Debug("raknet connection request sent",
+	// 	"mtu", state.mtu,
+	// )
+
+	go dialer.clientListen(conn, state.conn)
+
+	select {
+	case <-conn.connected:
+		// Remove connection deadline.
+		_ = conn.conn.SetDeadline(time.Time{})
+		// dialer.ErrorLog.Debug("raknet connection accepted")
+		return conn, nil
+	case <-ctx.Done():
+		_ = conn.Close()
+		// dialer.ErrorLog.Warn("raknet connection canceled before accept",
+		// 	"error", ctx.Err(),
+		// )
+		return nil, dialer.error("dial", ctx.Err())
+	}
+}
+
+// clientListen makes the RakNet connection passed listen as a client for
+// packets received in the connection passed.
+func (dialer Dialer) clientListen(rakConn *Conn, conn net.Conn) {
+	// Create a buffer with the maximum size a UDP packet sent over RakNet is
+	// allowed to have. We can re-use this buffer for each packet.
+	b := make([]byte, maxMTUSize)
+	for {
+		n, err := conn.Read(b)
+		if err == nil && n != 0 {
+			err = rakConn.receive(b[:n])
+		}
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			if errors.Is(err, errSplitBudget) {
+				rakConn.closeImmediately()
+				return
+			}
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				select {
+				case <-rakConn.connected:
+					// The handshake won the race with its dial deadline. Clear the
+					// expired deadline before resuming the established connection.
+					if err := conn.SetDeadline(time.Time{}); err == nil {
+						continue
+					}
+				default:
+				}
+				return
+			}
+			// Errors reading a packet other than the connection being
+			// closed may be worth logging.
+			dialer.ErrorLog.Error("handle packet: " + err.Error())
+		}
+	}
+}
+
+// connState represents a state of a connection before the connection is
+// finalised. It holds some data collected during the connection.
+type connState struct {
+	conn  net.Conn
+	raddr net.Addr
+	id    int64
+
+	// mtu is advertised by Reply 1 and finalized by Reply 2.
+	mtu uint16
+
+	// maxMTU is copied from Dialer.MaxMTU and caps the probe sizes used
+	// during MTU discovery. Zero means use the defaults.
+	maxMTU uint16
+
+	serverSecurity bool
+	cookie         uint32
+
+	ticker *time.Ticker
+
+	transientErrorCount int
+	maxTransientErrors  int
+}
+
+// minSupportedMTU is the smallest MTU probed, the classic IPv4 minimum.
+const minSupportedMTU = 576
+
+// mtuSizes is the default probe sequence used for MTU discovery. It matches
+// the ladder the vanilla client walks, so a path that drops the largest size
+// falls back to a usable MTU rather than straight to the minimum.
+var mtuSizes = []uint16{maxMTUSize, safeMTUSize, minSupportedMTU}
+
+// mtuSizesFor returns the MTU values to probe with when starting a
+// connection. If maxMTU is zero or already at least maxMTUSize, the unmodified
+// default list is returned. Otherwise the largest entry is replaced with
+// maxMTU and any default entries that are still smaller are kept after it.
+func mtuSizesFor(maxMTU uint16) []uint16 {
+	maxMTU = clampMTU(maxMTU, minSupportedMTU)
+	if maxMTU == maxMTUSize {
+		return mtuSizes
+	}
+	out := []uint16{maxMTU}
+	for _, s := range mtuSizes {
+		if s < maxMTU {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// negotiate keeps MTU probes running until Reply 2 completes the offline handshake.
+// All senders stop before the connected packet reader takes over the socket.
+func (state *connState) negotiate(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		state.request1(ctx, mtuSizesFor(state.maxMTU))
+	}()
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(ctx, func() {
+		state.close()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+		cancel()
+		<-done
+	}()
+	if err := state.discoverMTU(); err != nil {
+		state.close()
+		return fmt.Errorf("discover mtu: %w", err)
+	}
+	if err := state.openConnection(ctx); err != nil {
+		state.close()
+		return fmt.Errorf("open connection: %w", err)
+	}
+	return nil
+}
+
+// discoverMTU reads the initial MTU grant while negotiate runs the probe ladder.
+func (state *connState) discoverMTU() error {
+	maxMTU := clampMTU(state.maxMTU, minSupportedMTU)
+
+	b := make([]byte, maxMTUSize)
+	for {
+		// Start reading in a loop so that we can find an open connection reply
+		// 1 packet.
+		n, err := state.conn.Read(b)
+		if err != nil {
+			if isTransientUDPReadError(err) && (state.maxTransientErrors == -1 || state.transientErrorCount < state.maxTransientErrors) {
+				state.transientErrorCount++
+				continue
+			}
+			state.close()
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		switch b[0] {
+		case message.IDOpenConnectionReply1:
+			response := &message.OpenConnectionReply1{}
+			if err := response.UnmarshalBinary(b[1:n]); err != nil {
+				return fmt.Errorf("read open connection reply 1: %w", err)
+			}
+			state.serverSecurity, state.cookie = response.ServerHasSecurity, response.Cookie
+			if response.ServerGUID == 0 || response.MTU < minMTUSize || response.MTU > 1500 {
+				// This is an awful hack we cooked up to deal with OVH 'DDoS'
+				// protection. For some reason they send a broken MTU size
+				// first. Sending a Request2 followed by a Request1 deals with
+				// this.
+				// Echo the broken value exactly: protection layers use it as a
+				// challenge, not as the datagram size for this Request 2.
+				state.openConnectionRequest2(response.MTU, state.serverSecurity, state.cookie)
+				continue
+			}
+			if response.MTU > maxMTU {
+				continue
+			}
+			// Request 2 must echo the advertised grant, even when Reply 1 is
+			// unpadded. Bedrock-compatible servers may require an exact match.
+			state.mtu = response.MTU
+			return nil
+		case message.IDIncompatibleProtocolVersion:
+			response := &message.IncompatibleProtocolVersion{}
+			if err := response.UnmarshalBinary(b[1:n]); err != nil {
+				return fmt.Errorf("read incompatible protocol version: %w", err)
+			}
+			return fmt.Errorf("mismatched protocol: client protocol = %v, server protocol = %v", protocolVersion, response.ServerProtocol)
+		}
+	}
+}
+
+// request1 sends a message.OpenConnectionRequest1 four times for each mtu size
+// passed, spaced by 500ms, matching the vanilla client's connection-attempt
+// cadence (12 attempts across the 3 rungs, one every 500ms).
+func (state *connState) request1(ctx context.Context, sizes []uint16) {
+	state.ticker.Reset(time.Second / 2)
+	for _, size := range sizes {
+		for range 4 {
+			if ctx.Err() != nil {
+				return
+			}
+			state.openConnectionRequest1(size)
+			select {
+			case <-state.ticker.C:
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// openConnection sends open connection request 2 packets continuously
+// until it receives an open connection reply 2 packet from the server.
+func (state *connState) openConnection(ctx context.Context) error {
+	stopRequests := state.startRequest2(ctx)
+	defer func() { stopRequests() }()
+	maxMTU := clampMTU(state.maxMTU, minSupportedMTU)
+
+	b := make([]byte, maxMTUSize)
+	for {
+		// Start reading in a loop so that we can find open connection reply 2
+		// packets.
+		n, err := state.conn.Read(b)
+		if err != nil {
+			if isTransientUDPReadError(err) && (state.maxTransientErrors == -1 || state.transientErrorCount < state.maxTransientErrors) {
+				state.transientErrorCount++
+				continue
+			}
+			state.close()
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		switch b[0] {
+		case message.IDOpenConnectionReply1:
+			pk := &message.OpenConnectionReply1{}
+			if err = pk.UnmarshalBinary(b[1:n]); err != nil {
+				return fmt.Errorf("read repeated open connection reply 1: %w", err)
+			}
+			if pk.ServerGUID == 0 || pk.MTU < minMTUSize || pk.MTU > maxMTU {
+				continue
+			}
+			// Adopt the repeated reply's cookie and advertised MTU together
+			// so the next Request 2 matches the latest grant.
+			state.serverSecurity, state.cookie = pk.ServerHasSecurity, pk.Cookie
+			state.mtu = pk.MTU
+			stopRequests()
+			stopRequests = state.startRequest2(ctx)
+		case message.IDOpenConnectionReply2:
+			pk := &message.OpenConnectionReply2{}
+			if err = pk.UnmarshalBinary(b[1:n]); err != nil {
+				return fmt.Errorf("read open connection reply 2: %w", err)
+			}
+			if pk.MTU >= minMTUSize {
+				// Reply 2 may lower the MTU from the Reply 1 grant.
+				state.mtu = min(state.mtu, pk.MTU)
+			}
+			return nil
+		}
+	}
+}
+
+// startRequest2 starts retries with a snapshot of the current grant and cookie.
+// The returned function cancels and joins the sender before its replacement starts.
+func (state *connState) startRequest2(ctx context.Context) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	mtu, security, cookie := state.mtu, state.serverSecurity, state.cookie
+	go func() {
+		defer close(done)
+		state.request2(ctx, mtu, security, cookie)
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// request2 continuously sends a message.OpenConnectionRequest2 every 500ms.
+func (state *connState) request2(ctx context.Context, mtu uint16, serverSecurity bool, cookie uint32) {
+	ticker := time.NewTicker(time.Second / 2)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		state.openConnectionRequest2(mtu, serverSecurity, cookie)
+		select {
+		case <-ticker.C:
+			continue
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// openConnectionRequest1 sends an open connection request 1 packet to the
+// server. If not successful, an error is returned.
+func (state *connState) openConnectionRequest1(mtu uint16) {
+	data, _ := (&message.OpenConnectionRequest1{ClientProtocol: protocolVersion, MTU: mtu}).MarshalBinary()
+	_, _ = state.conn.Write(data)
+}
+
+// openConnectionRequest2 sends an open connection request 2 packet to the
+// server. If not successful, an error is returned.
+func (state *connState) openConnectionRequest2(mtu uint16, serverSecurity bool, cookie uint32) {
+	data, _ := (&message.OpenConnectionRequest2{
+		ServerAddress:     resolve(state.raddr),
+		MTU:               mtu,
+		ClientGUID:        state.id,
+		ServerHasSecurity: serverSecurity,
+		Cookie:            cookie,
+	}).MarshalBinary()
+	_, _ = state.conn.Write(data)
+}
+
+// close closes the underlying connection.
+func (state *connState) close() {
+	_ = state.conn.Close()
+}

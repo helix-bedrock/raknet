@@ -1,37 +1,48 @@
-<!-- TEMPLATE: replace everything in <angle brackets>, then delete this line. -->
+# raknet
 
-# <repo-name>
+RakNet for Minecraft: Bedrock Edition, with full low-level access for servers.
 
-<One sentence: what this is and who it's for.>
-
-**Status:** <experimental | in development | stable>
+**Status:** in development. The API will change as low-level hooks are added.
 
 Part of [Helix](https://github.com/helix-bedrock), an open-source Minecraft: Bedrock
-Edition server engine in Go.
+Edition server engine in Go. Helix maintains this library.
+
+## Origin
+
+This library started as a copy of [go-raknet](https://github.com/Sandertv/go-raknet)
+by **Sander ten Veldhuis** (MIT), taken from a fork that added congestion control,
+transport metrics and a larger test suite. Thank you to Sander for the original work.
+Helix maintains and changes it from here on.
 
 ## Install
 
 ```bash
-go get github.com/helix-bedrock/<repo-name>
+go get github.com/helix-bedrock/raknet
 ```
 
 ## Example
 
 ```go
-// <Smallest useful example.>
+listener, err := raknet.Listen("0.0.0.0:19132")
+if err != nil {
+    return err
+}
+defer listener.Close()
+
+for {
+    conn, err := listener.Accept()
+    if err != nil {
+        return err
+    }
+    go handle(conn)
+}
 ```
-
-## Documentation
-
-API docs: <https://pkg.go.dev/github.com/helix-bedrock/<repo-name>>
 
 ## Contributing
 
 See the [contributing guide](https://github.com/helix-bedrock/.github/blob/main/CONTRIBUTING.md).
-AI-assisted contributions follow the
-[AI policy](https://github.com/helix-bedrock/.github/blob/main/AI_POLICY.md).
 
 ## License
 
-<MIT | GPL-3.0>. See [`LICENSE`](LICENSE). Ported code and its sources are listed
-in [`CREDITS.md`](CREDITS.md).
+MIT. See [`LICENSE`](LICENSE). The original copyright notice from go-raknet is kept,
+as the MIT license requires. Sources are listed in [`CREDITS.md`](CREDITS.md).
