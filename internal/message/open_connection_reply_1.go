@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// OpenConnectionReply1 is the server's reply to OpenConnectionRequest1, carrying the MTU and security settings.
 type OpenConnectionReply1 struct {
 	ServerGUID        int64
 	ServerHasSecurity bool
@@ -15,7 +16,11 @@ type OpenConnectionReply1 struct {
 	Padded bool
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *OpenConnectionReply1) UnmarshalBinary(data []byte) error {
+	if err := checkOfflineMagic(data); err != nil {
+		return err
+	}
 	var offset int
 	if len(data) < 27 || len(data) < 27+int(data[24])*4 {
 		return io.ErrUnexpectedEOF
@@ -31,6 +36,7 @@ func (pk *OpenConnectionReply1) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *OpenConnectionReply1) MarshalBinary() (data []byte, err error) {
 	offset := 0
 	if pk.ServerHasSecurity {

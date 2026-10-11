@@ -11,8 +11,8 @@ func ExamplePing() {
 	if err != nil {
 		panic(err)
 	}
-	defer l.Close()
-	l.PongData([]byte("MCPE"))
+	defer func() { _ = l.Close() }()
+	_ = l.PongData([]byte("MCPE"))
 	address := l.Addr().String()
 
 	// Ping the target address. This will ping with a timeout of 5 seconds. raknet.PingContext and

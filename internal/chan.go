@@ -35,7 +35,9 @@ func (c *ElasticChan[T]) Recv(ctx context.Context) (val T, ok bool) {
 		return val, false
 	case val = <-c.ch:
 		if c.len.Add(-1) < 0 {
-			panic("unreachable")
+			// Every receive is preceded by a send that incremented len, so
+			// this cannot happen. Clamp instead of crashing if it ever does.
+			c.len.Store(0)
 		}
 		return val, true
 	}

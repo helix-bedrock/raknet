@@ -126,7 +126,7 @@ func testTransferLossyLink(t *testing.T, drop, dup float64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
@@ -134,13 +134,13 @@ func testTransferLossyLink(t *testing.T, drop, dup float64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	conn, err := l.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := conn.(*Conn)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	send := func(conn *Conn) error {
 		for off := 0; off < payloadSize; off += chunkSize {

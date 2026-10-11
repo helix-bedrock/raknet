@@ -164,11 +164,13 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 		select {
 		case <-conn.connected:
 			// Add the connection to the incoming channel so that a caller of
-			// Accept() can receive it.
+			// Accept() can receive it. Count it first: Accept() can return as
+			// soon as the send happens, and Stats() must already include it.
+			h.l.stats.connectionsAccepted.Add(1)
 			select {
 			case h.l.incoming <- conn:
-				h.l.stats.connectionsAccepted.Add(1)
 			case <-h.l.closed:
+				h.l.stats.connectionsAccepted.Add(^uint64(0))
 				_ = conn.Close()
 			}
 		case <-h.l.closed:
@@ -189,7 +191,8 @@ func (h listenerConnectionHandler) handle(conn *Conn, b []byte) (handled bool, e
 	case message.IDConnectionRequestAccepted:
 		return true, errUnexpectedCRA
 	case message.IDNewIncomingConnection:
-		return true, h.handleNewIncomingConnection(conn)
+		h.handleNewIncomingConnection(conn)
+		return true, nil
 	case message.IDConnectedPing:
 		return true, handleConnectedPing(conn, b[1:])
 	case message.IDConnectedPong:
@@ -224,14 +227,12 @@ func (h listenerConnectionHandler) handleConnectionRequest(conn *Conn, b []byte)
 
 // handleNewIncomingConnection handles an incoming connection packet from the
 // client, finalising the Conn.
-func (h listenerConnectionHandler) handleNewIncomingConnection(conn *Conn) error {
+func (h listenerConnectionHandler) handleNewIncomingConnection(conn *Conn) {
 	select {
 	case <-conn.connected:
-		return nil
 	default:
 		close(conn.connected)
 	}
-	return nil
 }
 
 type dialerConnectionHandler struct{ l *slog.Logger }

@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// ConnectedPong answers a ConnectedPing, echoing its timestamp.
 type ConnectedPong struct {
 	// PingTime represents the duration in milliseconds since the system or client was started.
 	PingTime int64
@@ -12,6 +13,7 @@ type ConnectedPong struct {
 	PongTime int64
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *ConnectedPong) UnmarshalBinary(data []byte) error {
 	if len(data) < 16 {
 		return io.ErrUnexpectedEOF
@@ -21,6 +23,7 @@ func (pk *ConnectedPong) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *ConnectedPong) MarshalBinary() (data []byte, err error) {
 	b := make([]byte, 17)
 	b[0] = IDConnectedPong

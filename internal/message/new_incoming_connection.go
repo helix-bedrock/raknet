@@ -6,6 +6,7 @@ import (
 	"net/netip"
 )
 
+// NewIncomingConnection is sent by the client to complete the connection handshake.
 type NewIncomingConnection struct {
 	ServerAddress   netip.AddrPort
 	SystemAddresses systemAddresses
@@ -15,6 +16,7 @@ type NewIncomingConnection struct {
 	PongTime int64
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *NewIncomingConnection) UnmarshalBinary(data []byte) error {
 	if len(data) < addrSize(data) {
 		return io.ErrUnexpectedEOF
@@ -41,6 +43,7 @@ func (pk *NewIncomingConnection) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *NewIncomingConnection) MarshalBinary() (data []byte, err error) {
 	nAddr, nSys := sizeofAddr(pk.ServerAddress), pk.SystemAddresses.sizeOf()
 	b := make([]byte, 1+nAddr+nSys+16)

@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// ConnectionRequest is sent by the client after the offline handshake to open the reliable connection.
 type ConnectionRequest struct {
 	ClientGUID int64
 	// RequestTime is a timestamp from the moment the packet is sent.
@@ -12,6 +13,7 @@ type ConnectionRequest struct {
 	Secure      bool
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *ConnectionRequest) UnmarshalBinary(data []byte) error {
 	if len(data) < 17 {
 		return io.ErrUnexpectedEOF
@@ -22,6 +24,7 @@ func (pk *ConnectionRequest) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *ConnectionRequest) MarshalBinary() (data []byte, err error) {
 	b := make([]byte, 18)
 	b[0] = IDConnectionRequest

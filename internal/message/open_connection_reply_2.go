@@ -6,6 +6,7 @@ import (
 	"net/netip"
 )
 
+// OpenConnectionReply2 is the server's reply to OpenConnectionRequest2, carrying the final MTU.
 type OpenConnectionReply2 struct {
 	ServerGUID    int64
 	ClientAddress netip.AddrPort
@@ -13,7 +14,11 @@ type OpenConnectionReply2 struct {
 	DoSecurity    bool
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *OpenConnectionReply2) UnmarshalBinary(data []byte) error {
+	if err := checkOfflineMagic(data); err != nil {
+		return err
+	}
 	if len(data) < 24 || len(data) < 27+addrSize(data[24:]) {
 		return io.ErrUnexpectedEOF
 	}
@@ -27,6 +32,7 @@ func (pk *OpenConnectionReply2) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *OpenConnectionReply2) MarshalBinary() (data []byte, err error) {
 	offset := sizeofAddr(pk.ClientAddress)
 	b := make([]byte, 28+offset)

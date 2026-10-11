@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"errors"
 	"net"
 )
 
@@ -23,4 +24,8 @@ func (conn *wrappedConn) WriteTo(b []byte, _ net.Addr) (n int, err error) {
 	return conn.Write(b)
 }
 
-func (conn *wrappedConn) ReadFrom([]byte) (int, net.Addr, error) { panic("unused") }
+// ReadFrom is not used on a wrapped connection: reads go through the dialed
+// connection directly. It returns errors.ErrUnsupported instead of panicking.
+func (conn *wrappedConn) ReadFrom([]byte) (int, net.Addr, error) {
+	return 0, nil, errors.ErrUnsupported
+}

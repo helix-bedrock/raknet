@@ -10,7 +10,9 @@ import (
 func TestPing(t *testing.T) {
 	l := testListener(t)
 	const pong = "MCPE;Local test server"
-	l.PongData([]byte(pong))
+	if err := l.PongData([]byte(pong)); err != nil {
+		t.Fatal(err)
+	}
 	addr := l.Addr().String()
 
 	data, err := raknet.Ping(addr)
@@ -25,7 +27,9 @@ func TestPing(t *testing.T) {
 func TestPingWithCustomDialer(t *testing.T) {
 	l := testListener(t)
 	const pong = "MCPE;Local test server"
-	l.PongData([]byte(pong))
+	if err := l.PongData([]byte(pong)); err != nil {
+		t.Fatal(err)
+	}
 	addr := l.Addr().String()
 
 	dialer := raknet.Dialer{

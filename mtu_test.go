@@ -106,7 +106,7 @@ func exchangeRequest1(t *testing.T, l *Listener, mtu uint16) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	req, _ := (&message.OpenConnectionRequest1{ClientProtocol: protocolVersion, MTU: mtu}).MarshalBinary()
 	if _, err := conn.Write(req); err != nil {
@@ -132,7 +132,7 @@ func TestListenerPadsOpenConnectionReply1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	b := exchangeRequest1(t, l, maxMTUSize)
 	if want := int(maxMTUSize) - 28; len(b) != want {
@@ -154,7 +154,7 @@ func TestListenerDoesNotPadSafeMTU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	b := exchangeRequest1(t, l, maxMTUSize)
 	if len(b) >= int(safeMTUSize)-28 {
@@ -176,7 +176,7 @@ func TestListenerFallsBackWhenProbeBudgetSpent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Retry across a second boundary: the budget refills every second.
 	for range 3 {
@@ -261,7 +261,7 @@ func TestHandshakeNegotiatesMaxMTU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	client, server := dialListener(t, l)
 	if client.mtu != maxMTUSize || server.mtu != maxMTUSize {
@@ -278,7 +278,7 @@ func TestHandshakeStepsDownWhenReplyDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	client, server := dialListener(t, l)
 	if client.mtu != safeMTUSize || server.mtu != safeMTUSize {
@@ -312,7 +312,7 @@ func TestDiscoverMTUEchoesCompatibilityRequest2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	const challenge, cookie = uint16(44819), uint32(0x12345678)
 	type compatibilityRequest struct {
@@ -352,7 +352,7 @@ func TestDiscoverMTUEchoesCompatibilityRequest2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
@@ -432,7 +432,7 @@ func TestHandshakeCommitsAdvertisedMTUAfterUnpaddedGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	start := time.Now()
 	client, server := dialListener(t, l)
@@ -455,7 +455,7 @@ func TestOpenConnectionAdoptsCookieFromUnpaddedRepeatedReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	const oldCookie, newCookie = uint32(1), uint32(2)
 	type request struct{ cookie, mtu uint32 }
@@ -496,7 +496,7 @@ func TestOpenConnectionAdoptsCookieFromUnpaddedRepeatedReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	// A dialer that ignores the reply never sends the cookie on, so bound the
 	// read rather than blocking the test forever.
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second * 2))
@@ -531,7 +531,7 @@ func TestOpenConnectionCapsReply2(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer server.Close()
+		defer func() { _ = server.Close() }()
 		go func() {
 			b := make([]byte, 2048)
 			_, addr, err := server.ReadFrom(b)
@@ -546,17 +546,21 @@ func TestOpenConnectionCapsReply2(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-		state := &connState{conn: conn, raddr: conn.RemoteAddr(), mtu: safeMTUSize}
+		state := &connState{conn: conn, raddr: conn.RemoteAddr(), mtu: safeMTUSize, maxMTU: safeMTUSize}
 		err = state.openConnection(ctx)
 		cancel()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if state.mtu != safeMTUSize {
-			t.Fatalf("reply granting %v: committed MTU %v, want %v", grant, state.mtu, safeMTUSize)
+		want := uint16(safeMTUSize)
+		if grant == 0 {
+			want = minSupportedMTU
+		}
+		if state.mtu != want {
+			t.Fatalf("reply granting %v: committed MTU %v, want %v", grant, state.mtu, want)
 		}
 	}
 }
@@ -568,7 +572,7 @@ func TestOpenConnectionRejectsRepeatedReplyAboveMaxMTU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	requestMTU := make(chan uint16, 1)
 	go func() {
@@ -599,7 +603,7 @@ func TestOpenConnectionRejectsRepeatedReplyAboveMaxMTU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
@@ -627,13 +631,13 @@ func TestListenerFloorsNonsenseRequest2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	conn, err := net.Dial("udp", l.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	req, _ := (&message.OpenConnectionRequest2{ServerAddress: netip.MustParseAddrPort("127.0.0.1:1"), MTU: 0, ClientGUID: -1}).MarshalBinary()
 	if _, err := conn.Write(req); err != nil {
@@ -665,7 +669,7 @@ func TestNegotiateContinuesProbingAfterReply1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	accepted := make(chan uint16, 1)
 	go func() {
 		b := make([]byte, 2048)
@@ -702,7 +706,7 @@ func TestNegotiateContinuesProbingAfterReply1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	counted := &offlineWriteCounter{Conn: conn}
 	state := &connState{conn: counted, raddr: conn.RemoteAddr(), ticker: time.NewTicker(time.Hour)}
 	defer state.ticker.Stop()
@@ -730,12 +734,12 @@ func TestNegotiateCancellationClosesRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	conn, err := net.Dial("udp", server.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	state := &connState{conn: conn, raddr: conn.RemoteAddr(), ticker: time.NewTicker(time.Hour)}
 	defer state.ticker.Stop()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -778,7 +782,7 @@ func TestHandshakeEchoesUnpaddedReply1Grant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	const advertisedMTU = uint16(1400)
 	requestMTU := make(chan uint16, 1)
@@ -830,7 +834,7 @@ func TestHandshakeEchoesUnpaddedReply1Grant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -206,15 +206,15 @@ func newConn(conn net.PacketConn, raddr net.Addr, mtu uint16, h connectionHandle
 		splits:         make(map[uint16]splitEntry),
 		win:            newDatagramWindow(),
 		packetQueue:    newPacketQueue(),
-		retransmission: newRecoveryQueue(),
 		congestion:     newCongestionWindow(mtu - 28),
 		sendQueueFreed: make(chan struct{}),
 		sendSignal:     make(chan struct{}, 1),
-		sendBudget:     uint32(mtu - 28),
 		buf:            bytes.NewBuffer(make([]byte, 0, mtu-28)), // - headers.
 		ackBuf:         bytes.NewBuffer(make([]byte, 0, 128)),
 		nackBuf:        bytes.NewBuffer(make([]byte, 0, 64)),
 	}
+	c.retransmission = newRecoveryQueue(c.signalSend)
+	c.sendBudget = c.congestion.transmissionBandwidth()
 	c.ctx, c.cancelFunc = context.WithCancel(context.Background())
 	t := time.Now()
 	c.lastActivity.Store(&t)
@@ -342,6 +342,8 @@ func (conn *Conn) update(now time.Time) {
 
 	if conn.retransmission.due(now) {
 		conn.resendExpired(now)
+	} else {
+		conn.retransmission.armTimer()
 	}
 	_ = conn.drainSendQueue()
 	conn.continuousSend = len(conn.controlQueue) != 0 || len(conn.sendQueue) != 0
@@ -359,7 +361,7 @@ func (conn *Conn) resendExpired(now time.Time) {
 			deadline = record.nextSend
 		}
 	}
-	conn.retransmission.deadline = deadline
+	conn.retransmission.setDeadline(deadline)
 	slices.SortFunc(resend, func(a, b uint24) int {
 		return conn.retransmission.unacknowledged[a].nextSend.Compare(
 			conn.retransmission.unacknowledged[b].nextSend,
@@ -438,6 +440,8 @@ func (conn *Conn) queuedSize(b []byte, rel reliability) uint32 {
 // was successful. If not, an error is returned and n is 0. Write may be called
 // simultaneously from multiple goroutines, but will write one by one. Unlike
 // Write, write will not lock.
+//
+//nolint:unparam // err stays so changes from upstream go-raknet keep merging cleanly.
 func (conn *Conn) write(b []byte, rel reliability, control bool) (n int, err error) {
 	fragments := split(b, conn.effectiveMTU())
 	var orderIndex uint24
