@@ -6,6 +6,7 @@ import (
 	"net/netip"
 )
 
+// ConnectionRequestAccepted is the server's reply to a ConnectionRequest.
 type ConnectionRequestAccepted struct {
 	ClientAddress   netip.AddrPort
 	SystemIndex     uint16
@@ -16,6 +17,7 @@ type ConnectionRequestAccepted struct {
 	PongTime int64
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *ConnectionRequestAccepted) UnmarshalBinary(data []byte) error {
 	if len(data) < addrSize(data) {
 		return io.ErrUnexpectedEOF
@@ -47,6 +49,7 @@ func (pk *ConnectionRequestAccepted) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *ConnectionRequestAccepted) MarshalBinary() (data []byte, err error) {
 	nAddr, nSys := sizeofAddr(pk.ClientAddress), pk.SystemAddresses.sizeOf()
 	b := make([]byte, 1+nAddr+2+nSys+16)

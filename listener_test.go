@@ -13,7 +13,7 @@ func TestListen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error connecting to listener: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	acceptTestConnection(t, l)
 }
 

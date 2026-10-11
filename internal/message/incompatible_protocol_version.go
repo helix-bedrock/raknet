@@ -5,11 +5,13 @@ import (
 	"io"
 )
 
+// IncompatibleProtocolVersion tells a client its RakNet protocol version is not supported.
 type IncompatibleProtocolVersion struct {
 	ServerProtocol byte
 	ServerGUID     int64
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *IncompatibleProtocolVersion) UnmarshalBinary(data []byte) error {
 	if len(data) < 25 {
 		return io.ErrUnexpectedEOF
@@ -20,6 +22,7 @@ func (pk *IncompatibleProtocolVersion) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *IncompatibleProtocolVersion) MarshalBinary() (data []byte, err error) {
 	b := make([]byte, 26)
 	b[0] = IDIncompatibleProtocolVersion

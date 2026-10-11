@@ -18,7 +18,7 @@ func TestOfflineReplyMagicDoesNotAdvanceHandshake(t *testing.T) {
 		t.Run(address, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				wire := newOfflineTestConn()
-				defer wire.Close()
+				defer func() { _ = wire.Close() }()
 				state := &connState{conn: wire, raddr: wire.RemoteAddr(), id: 42}
 				discovered := make(chan error, 1)
 				go func() { discovered <- state.discoverMTU() }()

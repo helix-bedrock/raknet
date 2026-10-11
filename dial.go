@@ -155,7 +155,7 @@ func (dialer Dialer) PingContext(ctx context.Context, address string) (response 
 	if err != nil {
 		return nil, dialer.error("ping", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	id, err := newClientGUID(rand.Reader)
 	if err != nil {

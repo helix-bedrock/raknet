@@ -28,7 +28,7 @@ func TestOfflineFinalMTUOwnsConnectedBudget(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				wire := newOfflineTestConn()
-				defer wire.Close()
+				defer func() { _ = wire.Close() }()
 				state := &connState{conn: wire, raddr: wire.RemoteAddr(), id: 42, mtu: test.initial, maxMTU: test.cap, serverSecurity: true, cookie: 7}
 				done := make(chan error, 1)
 				go func() { done <- state.openConnection(context.Background()) }()

@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// OpenConnectionRequest1 is the first offline handshake message, padded to probe the MTU.
 type OpenConnectionRequest1 struct {
 	ClientProtocol byte
 	MTU            uint16
@@ -12,6 +13,7 @@ type OpenConnectionRequest1 struct {
 
 var cachedOCR1 sync.Map
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *OpenConnectionRequest1) MarshalBinary() (data []byte, err error) {
 	if b, ok := cachedOCR1.Load(pk.MTU); ok {
 		// Cache OpenConnectionRequest1 data. These are independent of any other
@@ -27,6 +29,7 @@ func (pk *OpenConnectionRequest1) MarshalBinary() (data []byte, err error) {
 	return b, nil
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *OpenConnectionRequest1) UnmarshalBinary(data []byte) error {
 	if len(data) < 17 {
 		return io.ErrUnexpectedEOF

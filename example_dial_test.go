@@ -11,7 +11,7 @@ func ExamplePing() {
 	if err != nil {
 		panic(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	_ = l.PongData([]byte("MCPE"))
 	address := l.Addr().String()
 

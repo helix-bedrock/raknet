@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// UnconnectedPong answers an UnconnectedPing with the server's pong data.
 type UnconnectedPong struct {
 	// PingTime is filled out using UnconnectedPing.PingTime.
 	PingTime   int64
@@ -12,6 +13,7 @@ type UnconnectedPong struct {
 	Data       []byte
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *UnconnectedPong) UnmarshalBinary(data []byte) error {
 	// need at least ping(8)+serverGUID(8)+magic(16) = 32 bytes
 	if len(data) < 32 {
@@ -40,6 +42,7 @@ func (pk *UnconnectedPong) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *UnconnectedPong) MarshalBinary() (data []byte, err error) {
 	b := make([]byte, 35+len(pk.Data))
 	b[0] = IDUnconnectedPong

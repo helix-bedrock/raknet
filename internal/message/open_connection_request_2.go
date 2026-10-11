@@ -6,6 +6,7 @@ import (
 	"net/netip"
 )
 
+// OpenConnectionRequest2 is the second offline handshake message, carrying the client's GUID and chosen MTU.
 type OpenConnectionRequest2 struct {
 	ServerAddress netip.AddrPort
 	MTU           uint16
@@ -18,6 +19,7 @@ type OpenConnectionRequest2 struct {
 	Cookie            uint32
 }
 
+// MarshalBinary encodes the message into its wire format.
 func (pk *OpenConnectionRequest2) MarshalBinary() (data []byte, err error) {
 	cookieOffset := 0
 	offset := sizeofAddr(pk.ServerAddress)
@@ -37,6 +39,7 @@ func (pk *OpenConnectionRequest2) MarshalBinary() (data []byte, err error) {
 	return b, nil
 }
 
+// UnmarshalBinary decodes the message from its wire format.
 func (pk *OpenConnectionRequest2) UnmarshalBinary(data []byte) error {
 	cookieOffset := 0
 	if pk.ServerHasSecurity {

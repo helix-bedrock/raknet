@@ -1,12 +1,13 @@
 package raknet
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"math"
-	"math/rand/v2"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -145,7 +146,7 @@ type ListenerStatistics struct {
 }
 
 // listenerID holds the next ID to use for a Listener.
-var listenerID = rand.Int64()
+var listenerID = int64(secureUint64())
 
 // Listen listens on the address passed and returns a listener that may be used
 // to accept connections. If not successful, an error is returned. The address
@@ -356,8 +357,8 @@ type security struct {
 
 // newSecurity uses settings from a ListenConfig to create a security.
 func newSecurity(conf ListenConfig, h *listenerConnectionHandler) *security {
-	h.cookieSalt.Store(rand.Uint64())
-	h.previousSalt.Store(rand.Uint64())
+	h.cookieSalt.Store(secureUint64())
+	h.previousSalt.Store(secureUint64())
 	return &security{h: h, conf: conf, blocks: make(map[[16]byte]time.Time)}
 }
 
@@ -376,7 +377,7 @@ func (s *security) tick(stop <-chan struct{}) {
 			if i++; i%2 == 0 {
 				// Update salt used to produce cookies every 2s.
 				s.h.previousSalt.Store(s.h.cookieSalt.Load())
-				s.h.cookieSalt.Store(rand.Uint64())
+				s.h.cookieSalt.Store(secureUint64())
 			}
 		case <-stop:
 			return
@@ -468,4 +469,13 @@ func (s *security) gcBlocks() {
 		return !now.Before(t)
 	})
 	s.blockCount.Store(uint32(len(s.blocks)))
+}
+
+// secureUint64 returns a random uint64 from crypto/rand. Cookie salts protect
+// against spoofed handshakes, so they must not be predictable. crypto/rand.Read
+// never returns an error on supported platforms.
+func secureUint64() uint64 {
+	var b [8]byte
+	_, _ = cryptorand.Read(b[:])
+	return binary.LittleEndian.Uint64(b[:])
 }

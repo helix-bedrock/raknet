@@ -433,7 +433,7 @@ func TestCloseThroughTicker(t *testing.T) {
 				case <-time.After(150 * time.Millisecond):
 				}
 				conn.mu.Lock()
-				var sequences []uint24
+				sequences := make([]uint24, 0, len(conn.retransmission.unacknowledged))
 				for seq := range conn.retransmission.unacknowledged {
 					sequences = append(sequences, seq)
 				}

@@ -440,6 +440,8 @@ func (conn *Conn) queuedSize(b []byte, rel reliability) uint32 {
 // was successful. If not, an error is returned and n is 0. Write may be called
 // simultaneously from multiple goroutines, but will write one by one. Unlike
 // Write, write will not lock.
+//
+//nolint:unparam // err stays so changes from upstream go-raknet keep merging cleanly.
 func (conn *Conn) write(b []byte, rel reliability, control bool) (n int, err error) {
 	fragments := split(b, conn.effectiveMTU())
 	var orderIndex uint24

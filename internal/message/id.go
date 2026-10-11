@@ -1,5 +1,6 @@
 package message
 
+// IDs of RakNet messages: the first byte of every message on the wire.
 const (
 	IDConnectedPing                  byte = 0x00
 	IDUnconnectedPing                byte = 0x01
