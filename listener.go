@@ -329,7 +329,11 @@ func (listener *Listener) handle(b []byte, addr net.Addr) error {
 	if !found {
 		return listener.handler.handleUnconnected(b, addr)
 	}
-	conn := value.(*Conn)
+	conn, ok := value.(*Conn)
+	if !ok {
+		listener.connections.Delete(resolve(addr))
+		return listener.handler.handleUnconnected(b, addr)
+	}
 	select {
 	case <-conn.ctx.Done():
 		// Connection was closed already.
