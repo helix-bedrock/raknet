@@ -33,5 +33,5 @@ go test -race ./...
 
 ## Gotchas
 
-- Imported from a go-raknet fork; see `CREDITS.md`. Low-level hooks (connection
+- Imported from lunar-bedrock/go-raknet (a go-raknet fork); see `CREDITS.md`. Low-level hooks (connection
   attempts, frames, raw bytes) are being added; see the Helix API design.

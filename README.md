@@ -10,9 +10,11 @@ Edition server engine in Go. Helix maintains this library.
 ## Origin
 
 This library started as a copy of [go-raknet](https://github.com/Sandertv/go-raknet)
-by **Sander ten Veldhuis** (MIT), taken from a fork that added congestion control,
-transport metrics and a larger test suite. Thank you to Sander for the original work.
-Helix maintains and changes it from here on.
+by **Sander ten Veldhuis** (MIT), taken from the
+[lunar-bedrock/go-raknet](https://github.com/lunar-bedrock/go-raknet/tree/lunar) fork
+(branch `lunar`), which added congestion control, transport metrics and a larger
+test suite. Thank you to Sander and to the lunar-bedrock contributors for the
+original work. Helix maintains and changes it from here on.
 
 ## Install
 
