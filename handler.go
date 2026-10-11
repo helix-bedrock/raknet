@@ -164,11 +164,13 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 		select {
 		case <-conn.connected:
 			// Add the connection to the incoming channel so that a caller of
-			// Accept() can receive it.
+			// Accept() can receive it. Count it first: Accept() can return as
+			// soon as the send happens, and Stats() must already include it.
+			h.l.stats.connectionsAccepted.Add(1)
 			select {
 			case h.l.incoming <- conn:
-				h.l.stats.connectionsAccepted.Add(1)
 			case <-h.l.closed:
+				h.l.stats.connectionsAccepted.Add(^uint64(0))
 				_ = conn.Close()
 			}
 		case <-h.l.closed:
