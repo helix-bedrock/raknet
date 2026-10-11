@@ -245,13 +245,14 @@ func (listener *Listener) Close() error {
 
 // PongData sets the pong data that is used to respond with when a client sends
 // a ping. It usually holds game specific data that is used to display in a
-// server list. If a data slice is set with a size bigger than math.MaxInt16,
-// the function panics.
-func (listener *Listener) PongData(data []byte) {
+// server list. It returns an error, and keeps the previous pong data, if data
+// is longer than math.MaxInt16 bytes.
+func (listener *Listener) PongData(data []byte) error {
 	if len(data) > math.MaxInt16 {
-		panic(fmt.Sprintf("pong data: must be no longer than %v bytes, got %v", math.MaxInt16, len(data)))
+		return fmt.Errorf("raknet: pong data must be no longer than %v bytes, got %v", math.MaxInt16, len(data))
 	}
 	listener.pongData.Store(&data)
+	return nil
 }
 
 // PongDataFunc sets a function to generate pong data dynamically when responding to an unconnected ping.
