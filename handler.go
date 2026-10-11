@@ -61,6 +61,15 @@ func (h listenerConnectionHandler) cookie(addr net.Addr, salt uint64) uint32 {
 }
 
 func (h listenerConnectionHandler) handleUnconnected(b []byte, addr net.Addr) error {
+	if l := h.l.hooks.offline.get(); l != nil {
+		e := &OfflineEvent{Addr: addr, ID: b[0], Data: b}
+		if runVerdict(h.l.conf.ErrorLog, e, l) == Drop {
+			return nil
+		}
+		if b = e.Data; len(b) == 0 {
+			return nil
+		}
+	}
 	switch b[0] {
 	case message.IDUnconnectedPing, message.IDUnconnectedPingOpenConnections:
 		return h.handleUnconnectedPing(b[1:], addr)
@@ -95,8 +104,7 @@ func (h listenerConnectionHandler) handleUnconnectedPing(b []byte, addr net.Addr
 		}
 	}
 	data, _ := (&message.UnconnectedPong{ServerGUID: h.l.id, PingTime: pk.PingTime, Data: pongData}).MarshalBinary()
-	_, err := h.l.conn.WriteTo(data, addr)
-	return err
+	return h.l.writeOffline(data, addr)
 }
 
 // handleOpenConnectionRequest1 handles an open connection request 1 packet
@@ -111,7 +119,7 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest1(b []byte, addr n
 
 	if pk.ClientProtocol != protocolVersion {
 		data, _ := (&message.IncompatibleProtocolVersion{ServerGUID: h.l.id, ServerProtocol: protocolVersion}).MarshalBinary()
-		_, _ = h.l.conn.WriteTo(data, addr)
+		_ = h.l.writeOffline(data, addr)
 		return fmt.Errorf("handle OPEN_CONNECTION_REQUEST_1: incompatible protocol version %v (listener protocol = %v)", pk.ClientProtocol, protocolVersion)
 	}
 
@@ -124,8 +132,7 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest1(b []byte, addr n
 	}
 
 	data, _ := (&message.OpenConnectionReply1{ServerGUID: h.l.id, Cookie: h.cookie(addr, h.cookieSalt.Load()), ServerHasSecurity: !h.l.conf.DisableCookies, MTU: mtuSize, Padded: padded}).MarshalBinary()
-	_, err := h.l.conn.WriteTo(data, addr)
-	return err
+	return h.l.writeOffline(data, addr)
 }
 
 // handleOpenConnectionRequest2 handles an open connection request 2 packet
@@ -149,14 +156,24 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 	// nonsense request to the unproven maximum.
 	mtuSize := max(min(pk.MTU, h.l.maxMTU()), minMTUSize)
 
+	if l := h.l.hooks.attempt.get(); l != nil {
+		e := &AttemptEvent{Addr: addr, ClientGUID: pk.ClientGUID, RequestedMTU: pk.MTU, MTU: mtuSize}
+		if runVerdict(h.l.conf.ErrorLog, e, l) == Drop {
+			return nil
+		}
+		// A hook may only lower the MTU, never raise it past what was granted.
+		mtuSize = max(min(e.MTU, mtuSize), minMTUSize)
+	}
+
 	data, _ := (&message.OpenConnectionReply2{ServerGUID: h.l.id, ClientAddress: resolve(addr), MTU: mtuSize}).MarshalBinary()
-	if _, err := h.l.conn.WriteTo(data, addr); err != nil {
+	if err := h.l.writeOffline(data, addr); err != nil {
 		return fmt.Errorf("send OPEN_CONNECTION_REPLY_2: %w", err)
 	}
 
 	h.l.stats.connectionsStarted.Add(1)
 	go func() {
 		conn := newConn(h.l.conn, addr, mtuSize, h)
+		conn.listener = h.l
 		h.l.connections.Store(resolve(addr), conn)
 
 		t := time.NewTimer(time.Second * 10)
@@ -167,6 +184,9 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 			// Accept() can receive it. Count it first: Accept() can return as
 			// soon as the send happens, and Stats() must already include it.
 			h.l.stats.connectionsAccepted.Add(1)
+			if l := h.l.hooks.connect.get(); l != nil {
+				runConnHooks(h.l.conf.ErrorLog, conn, l)
+			}
 			select {
 			case h.l.incoming <- conn:
 			case <-h.l.closed:

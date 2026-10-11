@@ -38,6 +38,43 @@ for {
 }
 ```
 
+## Hooks
+
+Hooks give full low-level access to every stage of a connection. Add or remove
+them at any time; a hook that is not registered costs nothing (about 2 ns and no
+allocations per check). Hooks can observe, change (`e.Data = ...`) or drop
+(`return raknet.Drop`) what passes through them, and a panicking hook is logged
+instead of crashing the server.
+
+```go
+// Every connection on the listener.
+remove := listener.OnPacketIn(func(e *raknet.PacketEvent) raknet.Verdict {
+    log.Printf("%v sent %d bytes", e.Conn.RemoteAddr(), len(e.Data))
+    return raknet.Allow
+})
+defer remove()
+
+// Reject connection attempts before a connection exists.
+listener.OnConnectionAttempt(func(e *raknet.AttemptEvent) raknet.Verdict {
+    if banned(e.Addr) {
+        return raknet.Drop
+    }
+    return raknet.Allow
+})
+
+// Just one connection.
+conn.OnPacketOut(func(e *raknet.PacketEvent) raknet.Verdict { return raknet.Allow })
+```
+
+| Hook | Listener | Conn | Sees |
+|---|---|---|---|
+| `OnRawIn` / `OnRawOut` | ✓ | ✓ | Every UDP datagram, with address |
+| `OnOffline` | ✓ | | Pings and handshake messages before a connection exists |
+| `OnConnectionAttempt` | ✓ | | Peers that passed the handshake checks: GUID, MTU |
+| `OnConnect` / `OnDisconnect` | ✓ | `OnDisconnect` | Connection lifecycle |
+| `OnFrameIn` | ✓ | ✓ | Each frame: reliability, indexes, split info, payload |
+| `OnPacketIn` / `OnPacketOut` | ✓ | ✓ | Complete packets after reassembly / before splitting |
+
 ## Contributing
 
 See the [contributing guide](https://github.com/helix-bedrock/.github/blob/main/CONTRIBUTING.md).

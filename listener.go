@@ -55,6 +55,9 @@ type ListenConfig struct {
 // methods as those implemented by the TCPListener in the net package. Listener
 // implements the net.Listener interface.
 type Listener struct {
+	// hooks are the listener's hooks; see hooks.go.
+	hooks listenerHooks
+
 	conf    ListenConfig
 	handler *listenerConnectionHandler
 	sec     *security
@@ -326,13 +329,26 @@ func addrToStr(addr net.Addr) string {
 // not successful, an error is returned describing the issue.
 func (listener *Listener) handle(b []byte, addr net.Addr) error {
 	value, found := listener.connections.Load(resolve(addr))
-	if !found {
+	conn, ok := value.(*Conn)
+	if found && !ok {
+		listener.connections.Delete(resolve(addr))
+	}
+	if !ok {
+		if l := listener.hooks.rawIn.get(); l != nil {
+			e := &RawEvent{Addr: addr, Data: b}
+			if runVerdict(listener.conf.ErrorLog, e, l) == Drop {
+				return nil
+			}
+			b = e.Data
+		}
+		if len(b) == 0 {
+			return nil
+		}
 		return listener.handler.handleUnconnected(b, addr)
 	}
-	conn, ok := value.(*Conn)
-	if !ok {
-		listener.connections.Delete(resolve(addr))
-		return listener.handler.handleUnconnected(b, addr)
+	var keep bool
+	if b, keep = conn.runRaw(true, addr, b); !keep || len(b) == 0 {
+		return nil
 	}
 	select {
 	case <-conn.ctx.Done():
