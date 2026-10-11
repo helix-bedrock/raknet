@@ -1,6 +1,7 @@
 package raknet
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -117,6 +118,11 @@ type Dialer struct {
 	// server. Capping the MTU keeps every packet inside a single IP
 	// datagram for the entire connection.
 	MaxMTU uint16
+
+	// Protocol is the RakNet protocol version sent to the server. If zero,
+	// the current version (11) is used. Set it to 10 to connect like a
+	// Minecraft client older than 1.19.30.
+	Protocol byte
 }
 
 // Ping sends a ping to an address and returns the response obtained. If
@@ -260,6 +266,7 @@ func (dialer Dialer) DialContext(ctx context.Context, address string) (*Conn, er
 		ticker:             time.NewTicker(time.Second / 2),
 		maxTransientErrors: dialer.MaxTransientErrors,
 		maxMTU:             dialer.MaxMTU,
+		protocol:           cmp.Or(dialer.Protocol, protocolVersion),
 	}
 	defer cs.ticker.Stop()
 	if err = cs.negotiate(ctx); err != nil {
@@ -272,6 +279,7 @@ func (dialer Dialer) DialContext(ctx context.Context, address string) (*Conn, er
 // successful.
 func (dialer Dialer) connect(ctx context.Context, state *connState) (*Conn, error) {
 	conn := newConn(internal.ConnToPacketConn(state.conn), state.raddr, state.mtu, dialerConnectionHandler{l: dialer.ErrorLog})
+	conn.protocol = state.protocol
 	if err := conn.send((&message.ConnectionRequest{ClientGUID: state.id, RequestTime: timestamp()})); err != nil {
 		return nil, dialer.error("dial", fmt.Errorf("send connection request: %w", err))
 	}
@@ -347,6 +355,9 @@ type connState struct {
 	// maxMTU is copied from Dialer.MaxMTU and caps the probe sizes used
 	// during MTU discovery. Zero means use the defaults.
 	maxMTU uint16
+
+	// protocol is the RakNet protocol version sent in Request 1.
+	protocol byte
 
 	serverSecurity bool
 	cookie         uint32
@@ -467,7 +478,7 @@ func (state *connState) discoverMTU() error {
 			if err := response.UnmarshalBinary(b[1:n]); err != nil {
 				return fmt.Errorf("read incompatible protocol version: %w", err)
 			}
-			return fmt.Errorf("mismatched protocol: client protocol = %v, server protocol = %v", protocolVersion, response.ServerProtocol)
+			return fmt.Errorf("mismatched protocol: client protocol = %v, server protocol = %v", state.protocol, response.ServerProtocol)
 		}
 	}
 }
@@ -586,7 +597,7 @@ func (state *connState) request2(ctx context.Context, mtu uint16, serverSecurity
 // openConnectionRequest1 sends an open connection request 1 packet to the
 // server. If not successful, an error is returned.
 func (state *connState) openConnectionRequest1(mtu uint16) {
-	data, _ := (&message.OpenConnectionRequest1{ClientProtocol: protocolVersion, MTU: mtu}).MarshalBinary()
+	data, _ := (&message.OpenConnectionRequest1{ClientProtocol: state.protocol, MTU: mtu}).MarshalBinary()
 	_, _ = state.conn.Write(data)
 }
 

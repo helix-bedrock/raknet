@@ -98,6 +98,9 @@ type queuedDatagram struct {
 // RakNet. Methods may be called on Conn from multiple goroutines
 // simultaneously.
 type Conn struct {
+	// protocol is the RakNet protocol version used by the peer.
+	protocol byte
+
 	// rtt is the last measured round-trip time between both ends of the
 	// connection. The rtt is measured in nanoseconds.
 	rtt atomic.Int64
@@ -201,6 +204,7 @@ type Conn struct {
 func newConn(conn net.PacketConn, raddr net.Addr, mtu uint16, h connectionHandler) *Conn {
 	mtu = clampMTU(mtu, minMTUSize)
 	c := &Conn{
+		protocol:       protocolVersion,
 		raddr:          raddr,
 		conn:           conn,
 		mtu:            mtu,
@@ -1188,4 +1192,11 @@ var startTime = time.Now()
 // timestamp returns a timestamp since startTime in milliseconds.
 func timestamp() int64 {
 	return time.Since(startTime).Milliseconds()
+}
+
+// ProtocolVersion returns the RakNet protocol version of the connection: 11,
+// or 10 for Minecraft clients older than 1.19.30 accepted through
+// ListenConfig.AcceptedProtocols. Dialed connections use Dialer.Protocol.
+func (conn *Conn) ProtocolVersion() byte {
+	return conn.protocol
 }

@@ -55,6 +55,9 @@ type AttemptEvent struct {
 	RequestedMTU uint16
 	// MTU is the MTU the listener will grant. A hook may lower it.
 	MTU uint16
+	// Protocol is the RakNet protocol version the peer asked for: 11, or 10
+	// for Minecraft clients older than 1.19.30.
+	Protocol byte
 }
 
 // PacketEvent describes one complete packet (after reassembly) sent or
