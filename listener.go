@@ -49,6 +49,11 @@ type ListenConfig struct {
 	// BlockDuration defaults to 10s. If set to a negative value, IP addresses
 	// are never blocked on errors.
 	BlockDuration time.Duration
+	// AcceptedProtocols lists the RakNet protocol versions accepted from
+	// clients. If empty, only the current version (11) is accepted. Add 10 to
+	// accept Minecraft clients older than 1.19.30. Conn.ProtocolVersion
+	// reports which one a connection uses.
+	AcceptedProtocols []byte
 }
 
 // Listener implements a RakNet connection listener. It follows the same
@@ -188,7 +193,7 @@ func (conf ListenConfig) Listen(address string) (*Listener, error) {
 		closed:   make(chan struct{}),
 		id:       serverID,
 	}
-	listener.handler = &listenerConnectionHandler{l: listener, cookieSalt: &atomic.Uint64{}, previousSalt: &atomic.Uint64{}}
+	listener.handler = &listenerConnectionHandler{l: listener, cookieSalt: &atomic.Uint64{}, previousSalt: &atomic.Uint64{}, versions: newVersionTable()}
 	listener.sec = newSecurity(conf, listener.handler)
 	listener.pongData.Store(new([]byte))
 

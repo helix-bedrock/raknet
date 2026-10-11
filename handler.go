@@ -24,6 +24,8 @@ type listenerConnectionHandler struct {
 	l            *Listener
 	cookieSalt   *atomic.Uint64
 	previousSalt *atomic.Uint64
+	// versions remembers non-current RakNet protocols between requests 1 and 2.
+	versions *versionTable
 }
 
 var (
@@ -117,11 +119,12 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest1(b []byte, addr n
 	h.l.stats.connectionAttempts.Add(1)
 	mtuSize := min(pk.MTU, h.l.maxMTU())
 
-	if pk.ClientProtocol != protocolVersion {
+	if !h.l.conf.acceptsProtocol(pk.ClientProtocol) {
 		data, _ := (&message.IncompatibleProtocolVersion{ServerGUID: h.l.id, ServerProtocol: protocolVersion}).MarshalBinary()
 		_ = h.l.writeOffline(data, addr)
 		return fmt.Errorf("handle OPEN_CONNECTION_REQUEST_1: incompatible protocol version %v (listener protocol = %v)", pk.ClientProtocol, protocolVersion)
 	}
+	h.versions.put(addr, pk.ClientProtocol, time.Now())
 
 	// The request only proved the path towards us, so pad the reply to the size
 	// being granted: a peer that cannot receive it hears nothing and steps its
@@ -155,9 +158,10 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 	// Floor the grant: newConn treats an MTU of 0 as unset and would default a
 	// nonsense request to the unproven maximum.
 	mtuSize := max(min(pk.MTU, h.l.maxMTU()), minMTUSize)
+	version := h.versions.take(addr, time.Now())
 
 	if l := h.l.hooks.attempt.get(); l != nil {
-		e := &AttemptEvent{Addr: addr, ClientGUID: pk.ClientGUID, RequestedMTU: pk.MTU, MTU: mtuSize}
+		e := &AttemptEvent{Addr: addr, ClientGUID: pk.ClientGUID, RequestedMTU: pk.MTU, MTU: mtuSize, Protocol: version}
 		if runVerdict(h.l.conf.ErrorLog, e, l) == Drop {
 			return nil
 		}
@@ -174,6 +178,7 @@ func (h listenerConnectionHandler) handleOpenConnectionRequest2(b []byte, addr n
 	go func() {
 		conn := newConn(h.l.conn, addr, mtuSize, h)
 		conn.listener = h.l
+		conn.protocol = version
 		h.l.connections.Store(resolve(addr), conn)
 
 		t := time.NewTimer(time.Second * 10)
