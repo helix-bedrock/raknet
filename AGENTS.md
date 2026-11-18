@@ -28,7 +28,7 @@ go test -race ./...
 ## Invariants: do not break these
 
 1. Wire format matches vanilla Bedrock RakNet byte for byte.
-2. The original copyright line in `LICENSE` stays.
+2. The original MIT license of the first import stays in `licenses/`, and `CREDITS.md` keeps listing it.
 3. Hot paths (packet read and write) must not allocate in the steady state.
 
 ## Gotchas
